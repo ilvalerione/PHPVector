@@ -1,6 +1,6 @@
 # PHPVector
 
-A fast, pure-PHP vector database implementing **HNSW** (Hierarchical Navigable Small World) for approximate nearest-neighbour search and **BM25** for full-text retrieval. Both engines can be combined into a single **hybrid search** pipeline.
+A pure-PHP vector database implementing **HNSW** (Hierarchical Navigable Small World) for approximate nearest-neighbour search and **BM25** for full-text retrieval. Both engines can be combined into a single **hybrid search** pipeline.
 
 ## Requirements
 
