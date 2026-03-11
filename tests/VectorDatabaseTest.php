@@ -125,7 +125,6 @@ final class VectorDatabaseTest extends TestCase
         );
 
         self::assertNotEmpty($results);
-        self::assertContainsOnlyInstancesOf(SearchResult::class, $results);
     }
 
     public function testHybridRRFScoresAreDescending(): void

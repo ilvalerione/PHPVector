@@ -542,9 +542,7 @@ final class Index
         $dvs = $this->distVectors;
 
         while (!$candidates->isEmpty()) {
-            /** @var array{float, int} $nearest */
             [$cDist, $cId] = $candidates->extract(); // Nearest unprocessed candidate.
-            /** @var array{float, int} $farthest */
             [$fDist] = $found->top(); // Farthest element currently in W.
 
             // All remaining candidates are farther than the worst in W → stop.
