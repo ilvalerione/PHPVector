@@ -10,7 +10,7 @@ PHPVector, measuring the four metrics that matter in production:
 | **P99 latency** | Worst-case latency for 99% of queries |
 | **Recall@k** | Fraction of true nearest neighbours returned |
 
-A **persistence section** is also included, measuring `persist()` and `load()` speed and file throughput.
+A **persistence section** is also included, measuring `save()` and `open()` speed and folder throughput.
 
 ---
 
@@ -101,7 +101,7 @@ php benchmark/benchmark.php [options]
 | Option | Default | Description |
 |--------|---------|-------------|
 | `--output=<file>` | stdout | Write Markdown report to this path |
-| `--no-persist` | off | Skip the persistence (save/load) phase |
+| `--no-save` | off | Skip the persistence (`save` / `open`) phase |
 | `--no-recall` | off | Skip recall computation (faster for large datasets) |
 | `--help`, `-h` | — | Print usage and exit |
 
@@ -194,11 +194,13 @@ A Recall@10 of 95% means HNSW returns 9–10 of the true 10 nearest neighbours
 on average. Values below ~80% suggest `efSearch` is too low for the dataset, or
 `M`/`efConstruction` need increasing.
 
-### Persistence (persist / load)
+### Persistence (save / open)
 
-Wall-clock time and throughput (MB/s) for `VectorDatabase::persist()` and
-`VectorDatabase::load()`. The `.phpv` binary format uses `pack/unpack` for
-float arrays, so throughput is typically limited by filesystem speed.
+Wall-clock time and throughput (MB/s) for `VectorDatabase::save()` and
+`VectorDatabase::open()`. `save()` waits for any outstanding async document
+writes, then flushes `hnsw.bin` and `bm25.bin`. `open()` reads only those two
+index files; individual document files (`docs/{n}.bin`) are loaded lazily after
+search, so open time is typically fast regardless of document count.
 
 ---
 
@@ -327,9 +329,10 @@ nodes for some queries.
 **Recall** — breakdown at k=1, k=5, and k=K. Recall@1 is always ≥ Recall@k
 because finding the single nearest neighbour is easier than finding the top-K.
 
-**Persistence** — file size on disk, time and throughput for `persist()` and
-`load()`. Useful for planning deployment workflows where the index is built once
-and served from disk on each restart.
+**Persistence** — total folder size on disk, time and throughput for `save()` and
+`open()`. Useful for planning deployment workflows where the index is built once
+and served from disk on each restart. `open()` time is typically much faster than
+`save()` because document files are not read eagerly.
 
 ---
 
@@ -342,7 +345,7 @@ and served from disk on each restart.
 | Recall@10 | ≥ 95% | < 85% — increase `efSearch` or `M` |
 | P99 / P50 ratio | < 3× | > 5× — graph may have poor connectivity |
 | Build throughput | Consistent with N·log(N) growth | Sudden drops may indicate GC pressure |
-| persist() throughput | > 50 MB/s | Lower suggests filesystem bottleneck |
+| save() throughput | > 50 MB/s | Lower suggests filesystem bottleneck |
 
 ### The recall/speed tradeoff
 

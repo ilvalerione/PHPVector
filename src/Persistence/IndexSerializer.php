@@ -66,7 +66,7 @@ final class IndexSerializer
 
         $buf  = self::HNSW_MAGIC;
         $buf .= pack('C', self::VERSION);
-        $buf .= pack('NNNN', $dim, $nodeCount, $ep ?? self::NULL_ENTRY_POINT, (int) $state['maxLayer']);
+        $buf .= pack('NNNN', $dim, $nodeCount, $ep, (int) $state['maxLayer']);
 
         foreach ($nodes as $nodeId => $node) {
             $buf .= pack('NN', $nodeId, $node['maxLayer']);

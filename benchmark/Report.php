@@ -139,17 +139,17 @@ final class Report
                 $p = $result['persist'];
                 $lines[] = '### Persistence';
                 $lines[] = '';
-                $lines[] = '| Operation | File size | Time | Throughput |';
-                $lines[] = '|-----------|-----------|------|------------|';
-                $lines[] = sprintf('| `persist()` | %s | %s | %.1f MB/s |',
-                    self::fmtMb($p['file_size_mb']),
-                    self::fmtTime($p['persist_s']),
-                    $p['persist_mb_s'],
+                $lines[] = '| Operation | Folder size | Time | Throughput |';
+                $lines[] = '|-----------|-------------|------|------------|';
+                $lines[] = sprintf('| `save()` | %s | %s | %.1f MB/s |',
+                    self::fmtMb($p['folder_size_mb']),
+                    self::fmtTime($p['save_s']),
+                    $p['save_mb_s'],
                 );
-                $lines[] = sprintf('| `load()` | %s | %s | %.1f MB/s |',
-                    self::fmtMb($p['file_size_mb']),
-                    self::fmtTime($p['load_s']),
-                    $p['load_mb_s'],
+                $lines[] = sprintf('| `open()` | %s | %s | %.1f MB/s |',
+                    self::fmtMb($p['folder_size_mb']),
+                    self::fmtTime($p['open_s']),
+                    $p['open_mb_s'],
                 );
                 $lines[] = '';
             }

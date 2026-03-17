@@ -20,7 +20,7 @@
  *   --m=<n>                   HNSW M parameter                                 (default: 16)
  *   --seed=<n>                Random seed for reproducibility                  (default: 42)
  *   --output=<file>           Write Markdown report to file (default: stdout)
- *   --no-persist              Skip persistence benchmarks
+ *   --no-save                 Skip persistence benchmarks (save / open)
  *   --no-recall               Skip recall computation
  *   --help, -h                Show this help
  *
@@ -70,7 +70,7 @@ const SCENARIOS = [
 $opts = getopt('h', [
     'scenarios:', 'k:', 'queries:', 'recall-samples:',
     'ef-search:', 'ef-construction:', 'm:', 'seed:',
-    'output:', 'no-persist', 'no-recall', 'help', 'h',
+    'output:', 'no-save', 'no-persist', 'no-recall', 'help', 'h',
 ]);
 
 if (isset($opts['help']) || isset($opts['h'])) {
@@ -100,7 +100,7 @@ $efConstr      = max(1, (int) ($opts['ef-construction'] ?? 200));
 $m             = max(2, (int) ($opts['m'] ?? 16));
 $seed          = (int) ($opts['seed'] ?? 42);
 $outputFile    = $opts['output'] ?? null;
-$noPersist     = isset($opts['no-persist']);
+$noPersist     = isset($opts['no-save']) || isset($opts['no-persist']);
 $noRecall      = isset($opts['no-recall']);
 
 $hnswConfig = new HNSWConfig(
@@ -182,6 +182,33 @@ function computeRecall(
 }
 
 /**
+ * Recursively compute the total size of a directory in megabytes.
+ */
+function folderSizeMb(string $dir): float
+{
+    $bytes = 0;
+    $iter  = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($dir, FilesystemIterator::SKIP_DOTS));
+    foreach ($iter as $file) {
+        $bytes += $file->getSize();
+    }
+    return $bytes / (1024 * 1024);
+}
+
+/**
+ * Recursively delete a directory and all its contents.
+ */
+function rrmdir(string $dir): void
+{
+    if (!is_dir($dir)) {
+        return;
+    }
+    foreach ((array) glob($dir . '/*') as $item) {
+        is_dir((string) $item) ? rrmdir((string) $item) : unlink((string) $item);
+    }
+    rmdir($dir);
+}
+
+/**
  * Run a complete benchmark for one scenario and return the result array.
  */
 function runScenario(
@@ -258,30 +285,41 @@ function runScenario(
     }
 
     // 6. Persistence ───────────────────────────────────────────────────────
+    //
+    // Build a fresh VectorDatabase with a temp folder path so document files
+    // are written async during insert.  save() flushes the HNSW graph and
+    // BM25 index (waiting for any outstanding async doc writes first).
+    // open() reads only hnsw.bin + bm25.bin — document files are lazy.
     $persist = null;
     if (!$noPersist) {
-        progress("  Benchmarking persist / load …\n");
+        progress("  Benchmarking save / open …\n");
 
-        $tmpFile = tempnam(sys_get_temp_dir(), 'phpvbench_') . '.phpv';
+        $tmpDir = sys_get_temp_dir() . '/phpvbench_' . uniqid('', true);
+        mkdir($tmpDir, 0755, true);
+
+        $dbSave = new VectorDatabase($hnswConfig, new BM25Config(), new SimpleTokenizer([]), $tmpDir);
+        for ($i = 0; $i < $n; $i++) {
+            $dbSave->addDocument(new Document(id: $i, vector: $dataVectors[$i]));
+        }
 
         $t0 = hrtime(true);
-        $db->persist($tmpFile);
-        $persistTime = (hrtime(true) - $t0) / 1e9;
+        $dbSave->save();
+        $saveTime = (hrtime(true) - $t0) / 1e9;
 
-        $fileSizeMb = filesize($tmpFile) / (1024 * 1024);
+        $folderSizeMb = folderSizeMb($tmpDir);
 
         $t0 = hrtime(true);
-        VectorDatabase::load($tmpFile, $hnswConfig);
-        $loadTime = (hrtime(true) - $t0) / 1e9;
+        VectorDatabase::open($tmpDir, $hnswConfig);
+        $openTime = (hrtime(true) - $t0) / 1e9;
 
-        unlink($tmpFile);
+        rrmdir($tmpDir);
 
         $persist = [
-            'file_size_mb'  => $fileSizeMb,
-            'persist_s'     => $persistTime,
-            'persist_mb_s'  => $persistTime > 0.0 ? $fileSizeMb / $persistTime : 0.0,
-            'load_s'        => $loadTime,
-            'load_mb_s'     => $loadTime > 0.0 ? $fileSizeMb / $loadTime : 0.0,
+            'folder_size_mb' => $folderSizeMb,
+            'save_s'         => $saveTime,
+            'save_mb_s'      => $saveTime > 0.0 ? $folderSizeMb / $saveTime : 0.0,
+            'open_s'         => $openTime,
+            'open_mb_s'      => $openTime > 0.0 ? $folderSizeMb / $openTime : 0.0,
         ];
     }
 
