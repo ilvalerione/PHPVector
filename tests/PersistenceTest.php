@@ -7,6 +7,7 @@ namespace PHPVector\Tests;
 use PHPUnit\Framework\TestCase;
 use PHPVector\BM25\Config as BM25Config;
 use PHPVector\BM25\SimpleTokenizer;
+use PHPVector\Distance;
 use PHPVector\Document;
 use PHPVector\HNSW\Config as HNSWConfig;
 use PHPVector\HybridMode;
@@ -14,18 +15,28 @@ use PHPVector\VectorDatabase;
 
 final class PersistenceTest extends TestCase
 {
-    private string $tmpFile;
+    private string $tmpDir;
 
     protected function setUp(): void
     {
-        $this->tmpFile = tempnam(sys_get_temp_dir(), 'phpvtest_') . '.phpv';
+        $this->tmpDir = sys_get_temp_dir() . '/phpvtest_' . uniqid('', true);
+        mkdir($this->tmpDir, 0755, true);
     }
 
     protected function tearDown(): void
     {
-        if (file_exists($this->tmpFile)) {
-            unlink($this->tmpFile);
+        $this->rrmdir($this->tmpDir);
+    }
+
+    private function rrmdir(string $dir): void
+    {
+        if (!is_dir($dir)) {
+            return;
         }
+        foreach ((array) glob($dir . '/*') as $item) {
+            is_dir($item) ? $this->rrmdir((string) $item) : unlink((string) $item);
+        }
+        rmdir($dir);
     }
 
     // ------------------------------------------------------------------
@@ -38,13 +49,14 @@ final class PersistenceTest extends TestCase
             hnswConfig: new HNSWConfig(M: 8, efConstruction: 50, efSearch: 20),
             bm25Config: new BM25Config(),
             tokenizer:  new SimpleTokenizer([]),
+            path:       $this->tmpDir,
         );
     }
 
-    private function loadDb(): VectorDatabase
+    private function openDb(): VectorDatabase
     {
-        return VectorDatabase::load(
-            path:       $this->tmpFile,
+        return VectorDatabase::open(
+            path:       $this->tmpDir,
             hnswConfig: new HNSWConfig(M: 8, efConstruction: 50, efSearch: 20),
             bm25Config: new BM25Config(),
             tokenizer:  new SimpleTokenizer([]),
@@ -59,19 +71,17 @@ final class PersistenceTest extends TestCase
     {
         $db = $this->makeDb();
 
-        // Distinct cluster vectors so the nearest-neighbour is deterministic.
         $db->addDocument(new Document(id: 1, vector: [1.0, 0.0, 0.0, 0.0], text: 'alpha one'));
         $db->addDocument(new Document(id: 2, vector: [0.0, 1.0, 0.0, 0.0], text: 'beta two'));
         $db->addDocument(new Document(id: 3, vector: [0.0, 0.0, 1.0, 0.0], text: 'gamma three'));
         $db->addDocument(new Document(id: 4, vector: [0.0, 0.0, 0.0, 1.0], text: 'delta four'));
 
-        $query   = [1.0, 0.1, 0.0, 0.0];
-        $before  = $db->vectorSearch($query, k: 1);
+        $query  = [1.0, 0.1, 0.0, 0.0];
+        $before = $db->vectorSearch($query, k: 1);
 
-        $db->persist($this->tmpFile);
-        $loaded = $this->loadDb();
-
-        $after = $loaded->vectorSearch($query, k: 1);
+        $db->save();
+        $loaded = $this->openDb();
+        $after  = $loaded->vectorSearch($query, k: 1);
 
         self::assertSame($before[0]->document->id, $after[0]->document->id);
     }
@@ -87,10 +97,9 @@ final class PersistenceTest extends TestCase
         $query  = 'machine learning';
         $before = $db->textSearch($query, k: 1);
 
-        $db->persist($this->tmpFile);
-        $loaded = $this->loadDb();
-
-        $after = $loaded->textSearch($query, k: 1);
+        $db->save();
+        $loaded = $this->openDb();
+        $after  = $loaded->textSearch($query, k: 1);
 
         self::assertSame($before[0]->document->id, $after[0]->document->id);
     }
@@ -106,10 +115,9 @@ final class PersistenceTest extends TestCase
         $text   = 'vector';
         $before = $db->hybridSearch($query, $text, k: 1, mode: HybridMode::RRF);
 
-        $db->persist($this->tmpFile);
-        $loaded = $this->loadDb();
-
-        $after = $loaded->hybridSearch($query, $text, k: 1, mode: HybridMode::RRF);
+        $db->save();
+        $loaded = $this->openDb();
+        $after  = $loaded->hybridSearch($query, $text, k: 1, mode: HybridMode::RRF);
 
         self::assertSame($before[0]->document->id, $after[0]->document->id);
     }
@@ -125,10 +133,9 @@ final class PersistenceTest extends TestCase
         $text   = 'vector';
         $before = $db->hybridSearch($query, $text, k: 1, mode: HybridMode::Weighted);
 
-        $db->persist($this->tmpFile);
-        $loaded = $this->loadDb();
-
-        $after = $loaded->hybridSearch($query, $text, k: 1, mode: HybridMode::Weighted);
+        $db->save();
+        $loaded = $this->openDb();
+        $after  = $loaded->hybridSearch($query, $text, k: 1, mode: HybridMode::Weighted);
 
         self::assertSame($before[0]->document->id, $after[0]->document->id);
     }
@@ -149,8 +156,8 @@ final class PersistenceTest extends TestCase
             ));
         }
 
-        $db->persist($this->tmpFile);
-        $loaded = VectorDatabase::load($this->tmpFile, new HNSWConfig(M: 8, efConstruction: 50, efSearch: 20));
+        $db->save();
+        $loaded = $this->openDb();
 
         self::assertSame(10, $loaded->count());
     }
@@ -176,10 +183,9 @@ final class PersistenceTest extends TestCase
             text:   'only text',
         ));
 
-        $db->persist($this->tmpFile);
-        $loaded = $this->loadDb();
+        $db->save();
+        $loaded  = $this->openDb();
 
-        // Retrieve 'doc-meta' via vector search (it's the only document close to [0.5, 0.5]).
         $results = $loaded->vectorSearch([0.5, 0.5], k: 3);
         $byId    = [];
         foreach ($results as $r) {
@@ -208,8 +214,8 @@ final class PersistenceTest extends TestCase
         $db->addDocument(new Document(id: 42,    vector: [1.0, 0.0]));
         $db->addDocument(new Document(id: 'str', vector: [0.0, 1.0]));
 
-        $db->persist($this->tmpFile);
-        $loaded = $this->loadDb();
+        $db->save();
+        $loaded = $this->openDb();
 
         $intResult = $loaded->vectorSearch([1.0, 0.0], k: 1);
         self::assertSame(42, $intResult[0]->document->id);
@@ -221,28 +227,40 @@ final class PersistenceTest extends TestCase
     }
 
     // ------------------------------------------------------------------
-    // File format
+    // Folder structure
     // ------------------------------------------------------------------
 
-    public function testFileBeginsWithMagicBytes(): void
+    public function testFolderStructureIsCreated(): void
     {
         $db = $this->makeDb();
         $db->addDocument(new Document(id: 1, vector: [1.0, 0.0]));
-        $db->persist($this->tmpFile);
+        $db->save();
 
-        $handle = fopen($this->tmpFile, 'rb');
-        self::assertNotFalse($handle);
-        $magic = fread($handle, 4);
-        fclose($handle);
+        self::assertFileExists($this->tmpDir . '/meta.json');
+        self::assertFileExists($this->tmpDir . '/hnsw.bin');
+        self::assertFileExists($this->tmpDir . '/bm25.bin');
+        self::assertDirectoryExists($this->tmpDir . '/docs');
+        self::assertFileExists($this->tmpDir . '/docs/0.bin');
+    }
 
-        self::assertSame('PHPV', $magic);
+    public function testDocFilesAreWrittenPerNode(): void
+    {
+        $db = $this->makeDb();
+
+        for ($i = 0; $i < 5; $i++) {
+            $db->addDocument(new Document(id: $i, vector: [(float) $i, 0.0]));
+        }
+        $db->save();
+
+        $files = glob($this->tmpDir . '/docs/*.bin');
+        self::assertCount(5, $files);
     }
 
     public function testEmptyDatabaseRoundTrip(): void
     {
         $db = $this->makeDb();
-        $db->persist($this->tmpFile);
-        $loaded = $this->loadDb();
+        $db->save();
+        $loaded = $this->openDb();
 
         self::assertSame(0, $loaded->count());
         self::assertSame([], $loaded->vectorSearch([1.0, 0.0], k: 5));
@@ -250,31 +268,123 @@ final class PersistenceTest extends TestCase
     }
 
     // ------------------------------------------------------------------
+    // Lazy loading
+    // ------------------------------------------------------------------
+
+    public function testLazyLoadingEnrichesStubs(): void
+    {
+        $db = $this->makeDb();
+        $db->addDocument(new Document(
+            id:       'lazy-doc',
+            vector:   [1.0, 0.0],
+            text:     'lazy loading test',
+            metadata: ['loaded' => true],
+        ));
+        $db->save();
+
+        $loaded  = $this->openDb();
+        $results = $loaded->vectorSearch([1.0, 0.0], k: 1);
+
+        self::assertCount(1, $results);
+        self::assertSame('lazy-doc', $results[0]->document->id);
+        self::assertSame('lazy loading test', $results[0]->document->text);
+        self::assertSame(['loaded' => true], $results[0]->document->metadata);
+    }
+
+    // ------------------------------------------------------------------
+    // Auto UUID
+    // ------------------------------------------------------------------
+
+    public function testAutoUuidAssignedWhenIdIsNull(): void
+    {
+        $db = $this->makeDb();
+        $db->addDocument(new Document(vector: [1.0, 0.0]));
+        $db->save();
+
+        $loaded  = $this->openDb();
+        $results = $loaded->vectorSearch([1.0, 0.0], k: 1);
+
+        self::assertCount(1, $results);
+        self::assertIsString($results[0]->document->id);
+        // UUID v4 format: xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx
+        self::assertMatchesRegularExpression(
+            '/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/',
+            (string) $results[0]->document->id,
+        );
+    }
+
+    public function testTwoNullIdDocumentsGetDistinctUuids(): void
+    {
+        $db = $this->makeDb();
+        $db->addDocument(new Document(vector: [1.0, 0.0]));
+        $db->addDocument(new Document(vector: [0.0, 1.0]));
+        $db->save();
+
+        $loaded   = $this->openDb();
+        $results1 = $loaded->vectorSearch([1.0, 0.0], k: 1);
+        $results2 = $loaded->vectorSearch([0.0, 1.0], k: 1);
+
+        self::assertNotSame($results1[0]->document->id, $results2[0]->document->id);
+    }
+
+    // ------------------------------------------------------------------
     // Error cases
     // ------------------------------------------------------------------
 
-    public function testLoadThrowsOnDistanceMismatch(): void
+    public function testSaveThrowsWhenNoPathConfigured(): void
+    {
+        $db = new VectorDatabase();
+        $this->expectException(\RuntimeException::class);
+        $db->save();
+    }
+
+    public function testOpenThrowsOnMissingFolder(): void
+    {
+        $this->expectException(\RuntimeException::class);
+        VectorDatabase::open($this->tmpDir . '/does_not_exist');
+    }
+
+    public function testOpenThrowsOnDistanceMismatch(): void
     {
         $db = new VectorDatabase(
-            hnswConfig: new HNSWConfig(distance: \PHPVector\Distance::Cosine),
+            hnswConfig: new HNSWConfig(distance: Distance::Cosine),
+            path:       $this->tmpDir,
         );
         $db->addDocument(new Document(id: 1, vector: [1.0, 0.0]));
-        $db->persist($this->tmpFile);
+        $db->save();
 
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessageMatches('/[Dd]istance/');
 
-        VectorDatabase::load(
-            path:       $this->tmpFile,
-            hnswConfig: new HNSWConfig(distance: \PHPVector\Distance::Euclidean),
+        VectorDatabase::open(
+            path:       $this->tmpDir,
+            hnswConfig: new HNSWConfig(distance: Distance::Euclidean),
         );
     }
 
-    public function testLoadThrowsOnInvalidFile(): void
-    {
-        file_put_contents($this->tmpFile, 'not a valid phpv file at all');
+    // ------------------------------------------------------------------
+    // Incremental save
+    // ------------------------------------------------------------------
 
-        $this->expectException(\RuntimeException::class);
-        VectorDatabase::load($this->tmpFile);
+    public function testIncrementalSave(): void
+    {
+        // First save: 2 documents.
+        $db = $this->makeDb();
+        $db->addDocument(new Document(id: 1, vector: [1.0, 0.0], text: 'first'));
+        $db->addDocument(new Document(id: 2, vector: [0.0, 1.0], text: 'second'));
+        $db->save();
+
+        // Add more documents to a fresh instance opened from disk.
+        $loaded = $this->openDb();
+        $loaded->addDocument(new Document(id: 3, vector: [0.5, 0.5], text: 'third'));
+        $loaded->save();
+
+        // Re-open and verify all three documents are accessible.
+        $final   = $this->openDb();
+        self::assertSame(3, $final->count());
+
+        $results = $final->vectorSearch([1.0, 0.0], k: 3);
+        $ids     = array_map(fn($r) => $r->document->id, $results);
+        self::assertContains(1, $ids);
     }
 }

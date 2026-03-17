@@ -367,6 +367,21 @@ final class Index
         return count($this->nodes);
     }
 
+    /**
+     * Return the raw (un-normalised) vector stored for $nodeId.
+     * Used by VectorDatabase when hydrating lazy-loaded Documents.
+     *
+     * @return float[]
+     * @throws \OutOfBoundsException if $nodeId is not present.
+     */
+    public function getVector(int $nodeId): array
+    {
+        if (!isset($this->nodes[$nodeId])) {
+            throw new \OutOfBoundsException("No HNSW node with id {$nodeId}.");
+        }
+        return $this->nodes[$nodeId]->vector;
+    }
+
     /** Returns all stored documents. */
     public function getDocuments(): array
     {

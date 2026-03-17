@@ -1,6 +1,6 @@
 {
     "name": "ezimuel/phpvector",
-    "description": "A fast vector database in PHP implementing HNSW for approximate nearest-neighbor search and BM25 for hybrid full-text + vector retrieval.",
+    "description": "A vector database in PHP implementing HNSW for approximate nearest-neighbor search and BM25 for hybrid full-text + vector retrieval.",
     "type": "library",
     "license": "MIT",
     "require": {

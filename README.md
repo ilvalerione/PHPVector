@@ -5,7 +5,8 @@ A pure-PHP vector database implementing **HNSW** (Hierarchical Navigable Small W
 ## Requirements
 
 - PHP 8.1+
-- No external PHP extensions required
+- No external PHP extensions required for core functionality
+- `ext-pcntl` (optional) — enables asynchronous document writes for lower insert latency
 
 ## Installation
 
@@ -17,7 +18,7 @@ composer require ezimuel/phpvector
 
 ### 1. Insert documents
 
-A `Document` holds a dense embedding vector, optional raw text for BM25, and any metadata you want returned with results.
+A `Document` holds a dense embedding vector, optional raw text for BM25, and any metadata you want returned with results. The `id` field is optional — if omitted, a random UUID v4 is assigned automatically.
 
 ```php
 use PHPVector\Document;
@@ -43,6 +44,11 @@ $db->addDocuments([
         vector: [0.33, 0.61, 0.19, 0.88],
         text: 'BM25 full-text ranking algorithm explained',
         metadata: ['url' => 'https://example.com/3', 'lang' => 'en'],
+    ),
+    // No id — a UUID v4 is assigned automatically.
+    new Document(
+        vector: [0.55, 0.42, 0.71, 0.30],
+        text: 'Hybrid search with Reciprocal Rank Fusion',
     ),
 ]);
 ```
@@ -180,13 +186,33 @@ $db = new VectorDatabase(
 
 ## Persistence
 
-The full database state — HNSW graph, BM25 index, and all documents — can be saved to a single binary file and restored in one call. The format (`PHPV`) uses raw `pack/unpack` for float arrays and integer sequences, so reads and writes are fast even for large indexes.
+PHPVector uses a **folder-based** persistence model. Each database lives in its own directory containing separate files for the HNSW graph, the BM25 index, and one file per document. This design has two key advantages:
+
+- **Low memory footprint on load** — only the HNSW graph and BM25 index are loaded into memory. Individual document files (`docs/{n}.bin`) are read lazily, only for the documents that appear in search results.
+- **Low insert latency** — document files are written to disk asynchronously in a forked child process (requires `ext-pcntl`), so `addDocument()` returns immediately.
+
+### Folder layout
+
+```
+/var/data/mydb/
+  meta.json       — distance metric, dimension, document ID map
+  hnsw.bin        — HNSW graph (vectors + connections)
+  bm25.bin        — BM25 inverted index
+  docs/
+    0.bin         — document 0 (id, text, metadata)
+    1.bin         — document 1
+    …
+```
 
 ### Saving
 
+Pass a `path` to the constructor to enable persistence. Each `addDocument()` call writes the document file to `docs/` (asynchronously when `ext-pcntl` is available). Call `save()` once to flush the HNSW graph and BM25 index — it waits for any outstanding async writes before proceeding.
+
 ```php
-// Build and populate the index as usual.
-$db = new VectorDatabase();
+use PHPVector\Document;
+use PHPVector\VectorDatabase;
+
+$db = new VectorDatabase(path: '/var/data/mydb');
 
 $db->addDocuments([
     new Document(id: 1, vector: [0.12, 0.85, 0.44], text: 'PHP vector search', metadata: ['source' => 'blog']),
@@ -194,13 +220,28 @@ $db->addDocuments([
     // ... thousands more
 ]);
 
-// Persist to disk — single write, binary format.
-$db->persist('/var/data/myindex.phpv');
+// Flush HNSW graph + BM25 index to disk (document files already written).
+$db->save();
 ```
 
 ### Loading
 
-Pass the same `HNSWConfig` (including the same `distance` metric) that was used when building the index. The method throws `\RuntimeException` if the distance codes do not match.
+Use `VectorDatabase::open()` to load a previously saved folder. Only `hnsw.bin` and `bm25.bin` are read into memory; document files are loaded on demand after search.
+
+Pass the same `HNSWConfig` (including the same `distance` metric) that was used when building the index — a `RuntimeException` is thrown on mismatch.
+
+```php
+use PHPVector\VectorDatabase;
+
+$db = VectorDatabase::open('/var/data/mydb');
+
+// All three search modes work immediately.
+$results = $db->vectorSearch(vector: $queryVector, k: 5);
+$results = $db->textSearch(query: 'nearest neighbour', k: 5);
+$results = $db->hybridSearch(vector: $queryVector, text: 'nearest neighbour', k: 5);
+```
+
+### Custom configuration on open
 
 ```php
 use PHPVector\BM25\Config as BM25Config;
@@ -208,48 +249,45 @@ use PHPVector\Distance;
 use PHPVector\HNSW\Config as HNSWConfig;
 use PHPVector\VectorDatabase;
 
-$db = VectorDatabase::load('/var/data/myindex.phpv');
-```
-
-All three search modes work immediately after loading:
-
-```php
-$results = $db->vectorSearch(vector: $queryVector, k: 5);
-$results = $db->textSearch(query: 'nearest neighbour', k: 5);
-$results = $db->hybridSearch(vector: $queryVector, text: 'nearest neighbour', k: 5);
-```
-
-### Custom configuration on load
-
-If the index was built with non-default settings, pass the same config objects to `load()`:
-
-```php
-$db = VectorDatabase::load(
-    path:       '/var/data/myindex.phpv',
+$db = VectorDatabase::open(
+    path:       '/var/data/mydb',
     hnswConfig: new HNSWConfig(
         M:        16,
         efSearch: 100,
-        distance: Distance::Euclidean,  // must match what was used on persist
+        distance: Distance::Euclidean,  // must match the value used on save()
     ),
     bm25Config: new BM25Config(k1: 1.2, b: 0.8),
     tokenizer:  new MyCustomTokenizer(),
 );
 ```
 
-> **Note:** Only `efSearch` and `bm25Config`/`tokenizer` affect query-time behaviour and can differ from build time. `distance` and the graph parameters (`M`, `efConstruction`) are fixed at build time — `distance` is validated on load and must match.
+> **Note:** Only `efSearch` and `bm25Config`/`tokenizer` affect query-time behaviour and can differ from build time. `distance` and the graph parameters (`M`, `efConstruction`) are fixed at build time — `distance` is validated on `open()` and must match.
+
+### Incremental updates
+
+You can add new documents to a database that was loaded from disk, then call `save()` again. The existing document files are left in place; only the new ones are written along with updated index files.
+
+```php
+$db = VectorDatabase::open('/var/data/mydb');
+$db->addDocument(new Document(vector: [0.55, 0.42, 0.71], text: 'New document'));
+$db->save(); // writes docs/N.bin + updated hnsw.bin, bm25.bin, meta.json
+```
 
 ### Typical workflow: build once, serve many
 
 ```php
 // build.php — run once (or nightly)
-$db = new VectorDatabase(hnswConfig: new HNSWConfig(M: 32, efConstruction: 400));
+$db = new VectorDatabase(
+    hnswConfig: new HNSWConfig(M: 32, efConstruction: 400),
+    path: '/var/data/mydb',
+);
 foreach (fetchDocumentsFromDatabase() as $doc) {
     $db->addDocument($doc);
 }
-$db->persist('/var/data/myindex.phpv');
+$db->save();
 
 // serve.php — loaded on every request or worker boot
-$db = VectorDatabase::load('/var/data/myindex.phpv', new HNSWConfig(M: 32));
+$db = VectorDatabase::open('/var/data/mydb', new HNSWConfig(M: 32));
 $results = $db->vectorSearch($queryVector, k: 10);
 ```
 
