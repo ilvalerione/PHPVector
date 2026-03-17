@@ -10,7 +10,7 @@ A pure-PHP vector database implementing **HNSW** (Hierarchical Navigable Small W
 ## Installation
 
 ```bash
-composer require enrico/phpvector
+composer require ezimuel/phpvector
 ```
 
 ## Quick start
