@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace PHPVector\BM25;
 
+use PHPVector\BM25\StopWords\EnglishStopWords;
+use PHPVector\BM25\StopWords\StopWordsProviderInterface;
+
 /**
  * A lightweight, language-agnostic tokenizer.
  *
@@ -19,15 +22,19 @@ final class SimpleTokenizer implements TokenizerInterface
     private readonly array $stopWords;
 
     /**
-     * @param string[] $stopWords     Words to discard (case-insensitive).
-     * @param int      $minTokenLength Minimum token length to keep (default: 2).
+     * @param StopWordsProviderInterface|string[] $stopWords Stop words provider or array of words.
+     * @param int $minTokenLength Minimum token length to keep (default: 2).
      */
     public function __construct(
-        array $stopWords = self::DEFAULT_STOP_WORDS,
+        StopWordsProviderInterface|array $stopWords = new EnglishStopWords(),
         private readonly int $minTokenLength = 2,
     ) {
+        $words = $stopWords instanceof StopWordsProviderInterface
+            ? $stopWords->getStopWords()
+            : $stopWords;
+
         $this->stopWords = array_fill_keys(
-            array_map('mb_strtolower', $stopWords),
+            array_map('mb_strtolower', $words),
             true,
         );
     }
@@ -49,25 +56,4 @@ final class SimpleTokenizer implements TokenizerInterface
         }
         return $result;
     }
-
-    /**
-     * Common English stop words.
-     * Replace or extend via the constructor for other languages or domains.
-     */
-    public const DEFAULT_STOP_WORDS = [
-        'i', 'me', 'my', 'myself', 'we', 'our', 'ours', 'ourselves', 'you', 'your',
-        'yours', 'yourself', 'yourselves', 'he', 'him', 'his', 'himself', 'she', 
-        'her', 'hers', 'herself', 'it', 'its', 'itself', 'they', 'them', 'their', 
-        'theirs', 'themselves', 'what', 'which', 'who', 'whom', 'this', 'that', 
-        'these', 'those', 'am', 'is', 'are', 'was', 'were', 'be', 'been', 'being', 
-        'have', 'has', 'had', 'having', 'do', 'does', 'did', 'doing', 'a', 'an', 
-        'the', 'and', 'but', 'if', 'or', 'because', 'as', 'until', 'while', 'of', 
-        'at', 'by', 'for', 'with', 'about', 'against', 'between', 'into', 'through',
-        'during', 'before', 'after', 'above', 'below', 'to', 'from', 'up', 'down',
-        'in', 'out', 'on', 'off', 'over', 'under', 'again', 'further', 'then', 'once',
-        'here', 'there', 'when', 'where', 'why', 'how', 'all', 'any', 'both', 'each',
-        'few', 'more', 'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only',
-        'own', 'same', 'so', 'than', 'too', 'very', 's', 't', 'can', 'will', 'just',
-        'don', 'should', 'now'
-    ];
 }
