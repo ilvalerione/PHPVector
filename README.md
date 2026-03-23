@@ -4,7 +4,7 @@ A pure-PHP vector database implementing **HNSW** (Hierarchical Navigable Small W
 
 ## Requirements
 
-- PHP 8.1+
+- PHP 8.2+
 - No external PHP extensions required for core functionality
 - `ext-pcntl` (optional) — enables asynchronous document writes for lower insert latency
 
