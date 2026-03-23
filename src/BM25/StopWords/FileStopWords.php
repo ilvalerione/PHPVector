@@ -59,7 +59,7 @@ final class FileStopWords implements StopWordsProviderInterface
      */
     private function loadFromFile(): array
     {
-        $content = file_get_contents($this->filePath);
+        $content = @file_get_contents($this->filePath);
         if ($content === false) {
             throw new \RuntimeException(
                 sprintf('Failed to read stop words file: %s', $this->filePath)
