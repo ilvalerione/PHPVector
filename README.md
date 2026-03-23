@@ -291,6 +291,62 @@ $db = VectorDatabase::open('/var/data/mydb', new HNSWConfig(M: 32));
 $results = $db->vectorSearch($queryVector, k: 10);
 ```
 
+## Multi-language stop words
+
+Stop words are provided via `StopWordsProviderInterface`. Built-in providers:
+
+```php
+use PHPVector\BM25\SimpleTokenizer;
+use PHPVector\BM25\StopWords\EnglishStopWords;
+use PHPVector\BM25\StopWords\ItalianStopWords;
+use PHPVector\BM25\StopWords\FileStopWords;
+use PHPVector\VectorDatabase;
+
+// English (default)
+$db = new VectorDatabase();
+
+// Italian
+$db = new VectorDatabase(
+    tokenizer: new SimpleTokenizer(new ItalianStopWords()),
+);
+
+// Load from file (one word per line, # for comments)
+$db = new VectorDatabase(
+    tokenizer: new SimpleTokenizer(new FileStopWords('/path/to/stopwords.txt')),
+);
+
+### Stop words file format (`FileStopWords`)
+
+Use a plain UTF-8 text file with one stop word per line.
+
+Rules:
+- Empty lines are ignored
+- Lines starting with `#` are treated as comments
+- Words are normalized to lowercase when loaded
+
+Example (`stopwords-it.txt`):
+
+```txt
+# Italian stop words
+e
+di
+a
+che
+il
+la
+```
+
+// No stop words
+$db = new VectorDatabase(
+    tokenizer: new SimpleTokenizer(stopWords: []),
+);
+```
+
+Available providers:
+- `EnglishStopWords` - English stop words (default)
+- `ItalianStopWords` - Italian stop words
+- `FileStopWords` - Load from file
+
 ## Custom tokenizer
 
 Implement `TokenizerInterface` to plug in stemming, lemmatization, or any language-specific logic.
