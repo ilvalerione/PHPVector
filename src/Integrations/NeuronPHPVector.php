@@ -7,6 +7,7 @@ use NeuronAI\RAG\Document as NeuronDocument;
 use NeuronAI\RAG\VectorStore\VectorStoreInterface;
 use NeuronAI\StaticConstructor;
 use PHPVector\Document;
+use PHPVector\SearchResult;
 use PHPVector\VectorDatabase;
 
 class NeuronPHPVector implements VectorStoreInterface
@@ -34,7 +35,7 @@ class NeuronPHPVector implements VectorStoreInterface
             array_map(fn (NeuronDocument $document): Document => new Document(
                 id: $document->id,
                 vector: $document->embedding,
-                text: $document->text,
+                text: $document->content,
                 metadata: $document->metadata,
             ), $documents)
         );
@@ -56,11 +57,12 @@ class NeuronPHPVector implements VectorStoreInterface
     public function deleteBySource(string $sourceType, string $sourceName): VectorStoreInterface
     {
         $this->deleteBy($sourceType, $sourceName);
+        return $this;
     }
 
     /**
      * @param array<float> $embedding
-     * @return iterable<Document>
+     * @return iterable<NeuronDocument>
      */
     public function similaritySearch(array $embedding): iterable
     {
@@ -69,12 +71,13 @@ class NeuronPHPVector implements VectorStoreInterface
             k: $this->topK,
         );
 
-        return array_map(function (Document $document): NeuronDocument {
-            $item = new NeuronDocument($document->text);
-            $item->id = $document->id;
-            $item->embedding = $document->vector;
-            $item->metadata = $document->metadata;
-            return $item;
+        return array_map(function (SearchResult $result): NeuronDocument {
+            $document = new NeuronDocument($result->document->text);
+            $document->id = $result->document->id;
+            $document->embedding = $result->document->vector;
+            $document->metadata = $result->document->metadata;
+            $document->score = $result->score;
+            return $document;
         }, $results);
     }
 }
