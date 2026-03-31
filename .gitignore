@@ -1,6 +1,7 @@
 vendor/
 composer.lock
 .claude
+.idea
 
 # PHPUnit
 .phpunit.result.cache
